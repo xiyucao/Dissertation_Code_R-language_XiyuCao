@@ -1,0 +1,257 @@
+---
+title: "Dissertation_code"
+output: html_document
+---
+
+```{r}
+library(tidyr)
+library(tibble)
+library(dplyr)
+library(knitr)
+library(readxl)
+library(mgcv)
+```
+
+
+#Import relevant data
+```{r}
+data_2008Beijing <- read_excel("~/Desktop/Dissertation/2008 Summer Olympics medal table.xlsx")
+parti_countries <- read_excel("~/Desktop/Dissertation/Participating Countries.xlsx")
+NY_GDP <- read.csv("~/Desktop/Dissertation/NY_GDP.csv", sep=",") 
+POP_TOTL <- read.csv("~/Desktop/Dissertation/POP_TOTL.csv", sep=",")
+```
+
+
+```{r}
+medals_2008 <- data_2008Beijing %>%
+  rename(Country.Name = NOC) %>%
+  select(Country.Name, Total) %>%
+  mutate(GDP_2008=0, POP_2008=0)
+
+parti_countries <- parti_countries %>%
+  mutate(Total=0, GDP_2008=0, POP_2008=0)
+ 
+for(i in 1:nrow(medals_2008)){
+  for(j in 1:nrow(parti_countries)){
+    if(medals_2008$Country.Name[i] == parti_countries$Country.Name[j]){
+      parti_countries$Total[j] <- medals_2008$Total[i]
+    }
+  }
+}
+
+countries_2008 <- parti_countries %>%
+  arrange(-Total) %>%
+  mutate(Rank=0)
+
+for(i in 1:nrow(countries_2008)){
+  for(j in 1:nrow(countries_2008)){
+    if(countries_2008$Total[i] == countries_2008$Total[j]){
+      countries_2008$Rank[i] <- min(i,j)
+    }else{
+      countries_2008$Rank[i] <- i
+    }
+  }
+}
+
+for(i in 1:203){
+  if(countries_2008$Total[i] == countries_2008$Total[i+1]){
+    countries_2008$Rank[i+1] <- countries_2008$Rank[i]
+  }
+}
+
+for(i in 2:203){
+  if(countries_2008$Rank[i] - countries_2008$Rank[i-1] == 2){
+    countries_2008$Rank[i] <- countries_2008$Rank[i-1]+1
+  }
+}
+
+for(i in 2:203){
+  if(countries_2008$Total[i] == countries_2008$Total[i+1]){
+    countries_2008$Rank[i] <- countries_2008$Rank[i-1] + 1
+    countries_2008$Rank[i+1] <- countries_2008$Rank[i-1] + 1
+  }
+}
+
+countries_2008
+```
+
+#Filter the useful data 
+```{r}
+GDPs <- NY_GDP %>%
+  select(Country.Name, X2008) %>%
+  mutate(Country.Name = as.character(Country.Name)) %>%     
+  rename(GDP_2008 = X2008) 
+
+POPs <- POP_TOTL %>%
+  select(Country.Name, X2008) %>%
+  mutate(Country.Name = as.character(Country.Name)) %>%     
+  rename(POP_2008 = X2008) 
+
+#Match countries with Olympic candidates
+for(i in 1:nrow(GDPs)){
+  for(j in 1:nrow(countries_2008)){
+    if(GDPs$Country.Name[i] == countries_2008$Country.Name[j]){
+      countries_2008$GDP_2008[j] <- GDPs$GDP_2008[i]
+    }
+  }
+}      
+
+for(i in 1:nrow(POPs)){
+  for(j in 1:nrow(countries_2008)){
+    if(POPs$Country.Name[i] == countries_2008$Country.Name[j]){
+      countries_2008$POP_2008[j] <- POPs$POP_2008[i]
+    }
+  }
+}      
+
+#Add the lacking data
+countries_2008[34,3] <- 1.3337e+10               #North Korea_GDP 
+countries_2008$GDP_2008[104] <- 1.132849779e+9   #British Virgin Islands_GDP
+countries_2008$POP_2008[115] <- 1.8818e+4        #Cook Islands__POP 
+countries_2008$GDP_2008[115] <- 2.25453826e+8    #Cook Islands_GDP 
+countries_2008 <- countries_2008[-135,]          #delete Hong Kong
+countries_2008$GDP_2008[136] <- 2.422e+10        #Ivory Coast_GDP 
+countries_2008$POP_2008[136] <- 1.826e+7         #Ivory Coast__POP 
+countries_2008$GDP_2008[155] <- 2.63100000e+8    #Federated States of Micronesia_GDP 
+countries_2008$POP_2008[155] <- 1.04000e+5       #Federated States of Micronesia__POP 
+countries_2008$GDP_2008[163] <- 7.060253811e+9   #Netherlands Antilles_GDP 
+countries_2008$POP_2008[163] <- 1.86392e+5       #Netherlands Antilles__POP 
+countries_2008$GDP_2008[169] <- 7.310400000e+9   #Palestine_GDP 
+countries_2008$POP_2008[169] <- 3.856679e+6      #Palestine__POP 
+countries_2008$GDP_2008[185] <- 2.505e+9         #Sierra Leone_GDP   
+countries_2008$GDP_2008[187] <- 2.6e+9           #Somalia_GDP  
+countries_2008$GDP_2008[190] <- 3.29e+9          #Swaziland_GDP 
+countries_2008$POP_2008[190] <- 1.124529e+6      #Swaziland__POP 
+countries_2008$GDP_2008[191] <- 5.2557913193e+10 #Syria_GDP 
+countries_2008$GDP_2008[193] <- 4.39e+9          #East Timor_GDP 
+countries_2008$POP_2008[193] <- 1.06e+6          #East Timor__POP 
+countries_2008$POP_2008[201] <- 26097            #Virgin Islands__POP
+data0 <- countries_2008[-48,]                    #delete Chinese Taibei   
+
+data1 <- data0[-125,]                            #delete Hana
+# the full dataset & ranking tables, in terms of the total medals
+data1
+```
+
+#Exploratory data anaylsis
+```{r}
+Rank <- data1$Rank
+Country.Name <- data1$Country.Name
+Total_medals <- data1$Total
+GDP_2008 <- data1$GDP_2008
+POP_2008 <- data1$POP_2008
+
+#select variables
+d <- data1 %>%
+  rename(Total_medal=Total) %>%
+  select(Total_medal, GDP_2008, POP_2008) %>%
+  rename(GDP=GDP_2008, POP=POP_2008)
+
+cor(d)
+pairs(d)
+summary(d)
+
+# check the relationship between logarithm varibables
+log_GDP <- log(data1$GDP_2008)
+log_POP <- log(data1$POP_2008)
+log_Total_medals <- log(data1$Total)
+
+cor_data <- as.data.frame(log_Total_medals) %>%
+  mutate(log_GDP, log_POP)
+cor(cor_data)
+pairs(cor_data)
+```
+
+# Model 1: the simple model with two regressors
+```{r}
+# the dataset with 86 non-zero medals countries
+data_nonzero <- data1[1:86,]
+
+fit1_total <- lm(data_nonzero$Total ~ data_nonzero$GDP_2008 + data_nonzero$POP_2008)
+
+summary(fit1_total)
+par(mfrow=c(2,2))
+plot(fit1_total)
+```
+
+#Model 2: adding an interaction effect x1x2 into model 1
+```{r}
+fit2_total <- lm(data_nonzero$Total ~ data_nonzero$GDP_2008 + data_nonzero$POP_2008 + data_nonzero$GDP_2008*data_nonzero$POP_2008)
+
+summary(fit2_total)
+par(mfrow=c(2,2))
+plot(fit2_total)
+```
+
+
+#Model 3: a multiplicative model
+```{r}
+fit3_total <- lm(log(data_nonzero$Total) ~ log(data_nonzero$GDP_2008) + log(data_nonzero$POP_2008))
+
+summary(fit3_total)
+par(mfrow=c(2,2))
+plot(fit3_total)
+
+#ranking residuals
+residual_model3 <- residuals(fit3_total, type = "deviance")
+
+residual3_ranking <- as.data.frame(data_nonzero$Country.Name) %>%
+  rename(Country.Name='data_nonzero$Country.Name') %>%
+  mutate(residuals=residual_model3) %>%
+  arrange(-residuals)
+residual3_ranking
+
+#deviance of model 3
+deviance(fit3_total)
+```
+
+# Model 4: the GLM on gaussian family
+```{r}
+model4_glm_gaussian <- glm(formula=data_nonzero$Total ~ log(data_nonzero$GDP_2008)+log(data_nonzero$POP_2008), family = gaussian(link="log")) 
+
+summary(model4_glm_gaussian)
+par(mfrow=c(2,2))
+plot(model4_glm_gaussian)
+
+#ranking residuals
+residual_model4 <- residuals(model4_glm_gaussian,type = "deviance")
+
+residual4_ranking <- as.data.frame(data_nonzero$Country.Name) %>% 
+  rename(Country.Name='data_nonzero$Country.Name') %>% 
+  mutate(residuals=residual_model4) %>%
+  arrange(-residuals)
+residual4_ranking
+
+#plot the fitted regression curve
+Total_medals <- data_nonzero$Total
+plot(Total_medals,pch=16)
+points(fitted(model4_glm_gaussian),pch=21)
+title("Fitted regression curve with Gaussian family")
+legend('topright',legend=c('Observations','Fitted values'), pch=c(16,21))
+```
+
+# Model 5: the GLM on Poisson family with the full dataset
+```{r}
+model5_glm_poisson <- glm(formula=data1$Total ~ log(data1$GDP_2008)+log(data1$POP_2008), family = poisson(link="log")) 
+
+summary(model5_glm_poisson)
+par(mfrow=c(2,2))
+plot(model5_glm_poisson)
+
+#ranking residuals
+residual_model5 <- residuals(model5_glm_poisson,type = "deviance") #type = "pearson" deviance
+
+residual5_ranking <- as.data.frame(data1$Country.Name) %>% #data_nonzero
+  rename(Country.Name='data1$Country.Name') %>% #data_nonzero
+  mutate(residuals=residual_model5) %>%
+  arrange(-residuals)
+residual5_ranking
+
+#plot the fitted curve
+Total_medals <- data1$Total
+plot(Total_medals,pch=16)
+points(fitted(model5_glm_poisson),pch=21)
+title("Fitted regression curve with Poisson family")
+legend('topright',legend=c('Observations','Fitted values'), pch=c(16,21))
+```
+
